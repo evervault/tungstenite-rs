@@ -125,12 +125,18 @@ fn generate_request(request: Request, key: &str) -> Result<Vec<u8>> {
 
     for (k, v) in request.headers() {
         let mut k = k.as_str();
-        if k == "sec-websocket-protocol" {
-            k = "Sec-WebSocket-Protocol";
-        } else if &k.to_lowercase() == "sec-websocket-key" {
+        if k == http::header::SEC_WEBSOCKET_KEY {
             includes_key = true;
+        } else if (k != http::header::HOST)
+            & (k != http::header::CONNECTION)
+            & (k != http::header::UPGRADE)
+            & (k != http::header::SEC_WEBSOCKET_VERSION)
+        {
+            if k == "sec-websocket-protocol" {
+                k = "Sec-WebSocket-Protocol";
+            }
+            writeln!(req, "{}: {}\r", k, v.to_str()?).unwrap();
         }
-        writeln!(req, "{}: {}\r", k, v.to_str()?).unwrap();
     }
     if !includes_key {
         writeln!(
