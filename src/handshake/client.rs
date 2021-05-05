@@ -52,7 +52,13 @@ impl<S: Read + Write> ClientHandshake<S> {
         // Check the URI scheme: only ws or wss are supported
         let _ = crate::client::uri_mode(request.uri())?;
 
-        let key = generate_key();
+        let key = if let Some(key_str) = request.headers().get(http::header::SEC_WEBSOCKET_KEY) {
+            key_str.to_str()
+                .map(|key| key.to_string())
+                .unwrap_or(generate_key())
+        } else {
+            generate_key()
+        };
 
         let machine = {
             let req = generate_request(request, &key)?;
@@ -108,7 +114,6 @@ fn generate_request(request: Request, key: &str) -> Result<Vec<u8>> {
         return Err(Error::Url(UrlError::EmptyHostName));
     }
 
-    let mut includes_key = false;
     write!(
         req,
         "\
@@ -116,21 +121,22 @@ fn generate_request(request: Request, key: &str) -> Result<Vec<u8>> {
          Host: {host}\r\n\
          Connection: Upgrade\r\n\
          Upgrade: websocket\r\n\
-         Sec-WebSocket-Version: 13\r\n",
+         Sec-WebSocket-Version: 13\r\n\
+         Sec-WebSocket-Key: {key}\r\n",
         version = request.version(),
         host = host,
-        path = uri.path_and_query().ok_or(Error::Url(UrlError::NoPathOrQuery))?.as_str()
+        path = uri.path_and_query().ok_or(Error::Url(UrlError::NoPathOrQuery))?.as_str(),
+        key = key
     )
     .unwrap();
 
     for (k, v) in request.headers() {
         let mut k = k.as_str();
-        if k == http::header::SEC_WEBSOCKET_KEY {
-            includes_key = true;
-        } else if (k != http::header::HOST)
+        if (k != http::header::HOST)
             & (k != http::header::CONNECTION)
             & (k != http::header::UPGRADE)
             & (k != http::header::SEC_WEBSOCKET_VERSION)
+            & (k != http::header::SEC_WEBSOCKET_KEY)
         {
             if k == "sec-websocket-protocol" {
                 k = "Sec-WebSocket-Protocol";
@@ -138,15 +144,9 @@ fn generate_request(request: Request, key: &str) -> Result<Vec<u8>> {
             writeln!(req, "{}: {}\r", k, v.to_str()?).unwrap();
         }
     }
-    if !includes_key {
-        writeln!(
-            req,
-            "Sec-WebSocket-Key: {key}\r\n\r",
-            key = key
-        ).unwrap();
-    } else {
-        writeln!(req, "\r").unwrap();
-    }
+
+    writeln!(req, "\r").unwrap();
+
     trace!("Request: {:?}", String::from_utf8_lossy(&req));
     Ok(req)
 }
