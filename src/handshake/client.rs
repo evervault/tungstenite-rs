@@ -108,6 +108,7 @@ fn generate_request(request: Request, key: &str) -> Result<Vec<u8>> {
         return Err(Error::Url(UrlError::EmptyHostName));
     }
 
+    let mut includes_key = false;
     write!(
         req,
         "\
@@ -115,12 +116,10 @@ fn generate_request(request: Request, key: &str) -> Result<Vec<u8>> {
          Host: {host}\r\n\
          Connection: Upgrade\r\n\
          Upgrade: websocket\r\n\
-         Sec-WebSocket-Version: 13\r\n\
-         Sec-WebSocket-Key: {key}\r\n",
+         Sec-WebSocket-Version: 13\r\n",
         version = request.version(),
         host = host,
-        path = uri.path_and_query().ok_or(Error::Url(UrlError::NoPathOrQuery))?.as_str(),
-        key = key
+        path = uri.path_and_query().ok_or(Error::Url(UrlError::NoPathOrQuery))?.as_str()
     )
     .unwrap();
 
@@ -128,10 +127,20 @@ fn generate_request(request: Request, key: &str) -> Result<Vec<u8>> {
         let mut k = k.as_str();
         if k == "sec-websocket-protocol" {
             k = "Sec-WebSocket-Protocol";
+        } else if &k.to_lowercase() == "sec-websocket-key" {
+            includes_key = true;
         }
         writeln!(req, "{}: {}\r", k, v.to_str()?).unwrap();
     }
-    writeln!(req, "\r").unwrap();
+    if !includes_key {
+        writeln!(
+            req,
+            "Sec-WebSocket-Key: {key}\r\n\r",
+            key = key
+        ).unwrap();
+    } else {
+        writeln!(req, "\r").unwrap();
+    }
     trace!("Request: {:?}", String::from_utf8_lossy(&req));
     Ok(req)
 }
